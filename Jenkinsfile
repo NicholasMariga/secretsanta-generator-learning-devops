@@ -1,105 +1,138 @@
+
+
 pipeline {
-    agent any
-    tools{
-        jdk 'jdk17'
-        maven 'maven3'
-    }
-    environment{
-        SCANNER_HOME= tool 'sonar-scanner'
-    }
-
-    stages {
-        stage('git-checkout') {
-            steps {
-                git 'https://github.com/jaiswaladi246/secretsanta-generator.git'
-            }
-        }
-
-        stage('Code-Compile') {
-            steps {
-               sh "mvn clean compile"
-            }
-        }
-        
-        stage('Unit Tests') {
-            steps {
-               sh "mvn test"
-            }
-        }
-        
-		stage('OWASP Dependency Check') {
-            steps {
-               dependencyCheck additionalArguments: ' --scan ./ ', odcInstallation: 'DC'
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-            }
-        }
-
-
-        stage('Sonar Analysis') {
-            steps {
-               withSonarQubeEnv('sonar'){
-                   sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Santa \
-                   -Dsonar.java.binaries=. \
-                   -Dsonar.projectKey=Santa '''
-               }
-            }
-        }
-
-		 
-        stage('Code-Build') {
-            steps {
-               sh "mvn clean package"
-            }
-        }
-
-         stage('Docker Build') {
-            steps {
-               script{
-                   withDockerRegistry(credentialsId: 'docker-cred') {
-                    sh "docker build -t  santa123 . "
-                 }
-               }
-            }
-        }
-
-        stage('Docker Push') {
-            steps {
-               script{
-                   withDockerRegistry(credentialsId: 'docker-cred') {
-                    sh "docker tag santa123 adijaiswal/santa123:latest"
-                    sh "docker push adijaiswal/santa123:latest"
-                 }
-               }
-            }
-        }
-        
-        	 
-        stage('Docker Image Scan') {
-            steps {
-               sh "trivy image adijaiswal/santa123:latest "
-            }
-        }}
-        
-         post {
-            always {
-                emailext (
-                    subject: "Pipeline Status: ${BUILD_NUMBER}",
-                    body: '''<html>
-                                <body>
-                                    <p>Build Status: ${BUILD_STATUS}</p>
-                                    <p>Build Number: ${BUILD_NUMBER}</p>
-                                    <p>Check the <a href="${BUILD_URL}">console output</a>.</p>
-                                </body>
-                            </html>''',
-                    to: 'jaiswaladi246@gmail.com',
-                    from: 'jenkins@example.com',
-                    replyTo: 'jenkins@example.com',
-                    mimeType: 'text/html'
-                )
-            }
-        }
-		
-		
-
+    //agent any
+    //add slave nodes here
+    agent {label 'slave-1'}
     
+    tools {
+        maven 'maven'
+        jdk 'jdk17'
+    }
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+    }
+    stages {
+        //stage('Git Checkout') {
+        //    steps {
+        //        git 'https://github.com/NicholasMariga/secretsanta-generator-learning-devops.git'
+        //   }
+        //}
+        stage('Compile') {
+            steps {
+                sh "mvn compile"
+            }
+        }
+        stage('Tests') {
+            steps {
+                sh "mvn test"
+            }
+        }
+        stage('Sonaqube Analysis') {
+            steps {
+                //name of the sonaqube server set in system under manage jenkins
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=santa \
+                     -Dsonar.projectKey=santa -Dsonar.java.binaries=. ''' 
+                }
+            }
+        }
+        //stage('OWASP Scan') {
+        //    steps {
+        //        dependencyCheck additionalArguments: ' --scan .', odcInstallation: 'DC'
+        //        dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+        //    }
+        //}
+        stage('Build Application') {
+            steps {
+                sh "mvn package"
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'Docker-1'){
+                        sh "docker build -t santa:latest ."
+                    }
+                }
+            }
+        }
+        stage('Tag & Push Docker Image') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'Docker-1'){
+                        sh "docker tag santa:latest marigah/santa:latest"
+                        sh "docker push marigah/santa:latest"
+                    }
+                }
+            }
+        }
+        stage('Depoy Application') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'Docker-1'){
+                        sh "docker run -d -p 8081:8080 marigah/santa:latest"
+                    }
+                }
+            }
+        }
+    }
+    
+    
+//Email notification
+post {
+    success {
+        emailext (
+            subject: "Successful Build: ${env.JOB_NAME}",
+            body: """<html>
+                        <body>
+                            <p>Build Name: ${env.JOB_NAME}</p>
+                            <p>Build Number: ${env.BUILD_NUMBER}</p>
+                            <p>Check the <a href="${env.BUILD_URL}">console output</a>.</p>
+                        </body>
+                    </html>""",
+            attachLog: true,
+            to: 'nicholasmarigah@gmail.com',
+            from: 'awsmariga@gmail.com',
+            replyTo: 'awsmariga@gmail.com',
+            mimeType: 'text/html'
+        )
+    }
+
+    failure {
+        emailext (
+            subject: "Failed Build: ${env.JOB_NAME}",
+            body: """<html>
+                        <body>
+                            <p>Build Name: ${env.JOB_NAME}</p>
+                            <p>Build Number: ${env.BUILD_NUMBER}</p>
+                            <p>Check the <a href="${env.BUILD_URL}">console output</a>.</p>
+                        </body>
+                    </html>""",
+            attachLog: true,
+            to: 'nicholasmarigah@gmail.com',
+            from: 'awsmariga@gmail.com',
+            replyTo: 'awsmariga@gmail.com',
+            mimeType: 'text/html'
+        )
+    }
+    aborted {
+        emailext (
+            subject: "Aborted Build: ${env.JOB_NAME}",
+            body: """<html>
+                        <body>
+                            <p>Build Name: ${env.JOB_NAME}</p>
+                            <p>Build Number: ${env.BUILD_NUMBER}</p>
+                            <p>Check the <a href="${env.BUILD_URL}">console output</a>.</p>
+                        </body>
+                    </html>""",
+            attachLog: true,
+            to: 'nicholasmarigah@gmail.com',
+            from: 'awsmariga@gmail.com',
+            replyTo: 'awsmariga@gmail.com',
+            mimeType: 'text/html'
+        )
+    }
+ }
 }
